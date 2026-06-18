@@ -3,19 +3,37 @@ import chromadb
 import streamlit as st
 import google.generativeai as genai
 
+from pathlib import Path
 from dotenv import load_dotenv
 from sentence_transformers import SentenceTransformer
 
-load_dotenv()
+BASE_DIR = Path(__file__).resolve().parent
+
+load_dotenv(BASE_DIR / "api.env")
+
+st.title(
+    "🤖 HR Policy Assistant"
+)
+
+api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
+
+if not api_key:
+    st.error(
+        "Missing Gemini API key. Add GEMINI_API_KEY=your_key to api.env."
+    )
+    st.stop()
 
 genai.configure(
-    api_key=os.getenv(
-        "GEMINI_API_KEY"
-    )
+    api_key=api_key
+)
+
+model_name = os.getenv(
+    "GEMINI_MODEL",
+    "gemini-2.5-flash"
 )
 
 model = genai.GenerativeModel(
-    "gemini-1.5-flash"
+    model_name
 )
 
 embedding_model = SentenceTransformer(
@@ -23,15 +41,11 @@ embedding_model = SentenceTransformer(
 )
 
 client = chromadb.PersistentClient(
-    path="chroma_db"
+    path=str(BASE_DIR / "chroma_db")
 )
 
 collection = client.get_collection(
     "hr_policies"
-)
-
-st.title(
-    "🤖 HR Policy Assistant"
 )
 
 question = st.text_input(
@@ -40,24 +54,28 @@ question = st.text_input(
 
 if question:
 
-    query_embedding = (
-        embedding_model.encode(
-            question
+    with st.spinner(
+        "Generating answer..."
+    ):
+
+        query_embedding = (
+            embedding_model.encode(
+                question
+            )
         )
-    )
 
-    results = collection.query(
-        query_embeddings=[
-            query_embedding.tolist()
-        ],
-        n_results=2
-    )
+        results = collection.query(
+            query_embeddings=[
+                query_embedding.tolist()
+            ],
+            n_results=2
+        )
 
-    context = "\n".join(
-        results["documents"][0]
-    )
+        context = "\n".join(
+            results["documents"][0]
+        )
 
-    prompt = f"""
+        prompt = f"""
 You are an HR assistant.
 
 Answer ONLY using
@@ -79,9 +97,9 @@ Question:
 {question}
 """
 
-    response = model.generate_content(
-        prompt
-    )
+        response = model.generate_content(
+            prompt
+        )
 
     st.subheader(
         "Answer"
@@ -89,12 +107,4 @@ Question:
 
     st.write(
         response.text
-    )
-
-    st.subheader(
-        "Source"
-    )
-
-    st.write(
-        results["metadatas"][0][0]["source"]
     )
